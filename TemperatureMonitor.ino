@@ -8,29 +8,22 @@
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
 
-DeviceAddress thermColdWater =  {0x28, 0xFF, 0x18, 0x89, 0xB3, 0x16, 0x04, 0x3F};  
-DeviceAddress thermWarmWater =  {0x28, 0xFF, 0xB2, 0x1B, 0xB3, 0x16, 0x05, 0x09};
-DeviceAddress thermOutside =    {0x28, 0xff, 0x46, 0xC7, 0x60, 0x17, 0x05, 0x9A};
-DeviceAddress thermPumpOut =    {0x28, 0xFF, 0x5D, 0x1A, 0x80, 0x14, 0x02, 0x1B};
-DeviceAddress thermPumpReturn = {0x28, 0xFF, 0x18, 0x1A, 0x80, 0x14, 0x02, 0x20};
-float tempColdWater = 0.0000f;
-float tempWarmWater = 0.0000f;
-float tempOutside = 0.0000f;
-float tempPumpOut = 0.0000f;
-float tempPumpReturn = 0.0000f;
+uint8_t sensorCount = 0;
+DeviceAddress addresses[10];
+float temperatures[10];
 
 unsigned long lastReadTime = millis();      // when we last read temps (to avoid call to delay)
 unsigned long lastPrintTime = millis();     // when we last printed temps (to avoid call to delay)
-#define DELAY_TEMP_READ 5000      // delay for measuring temp (ms)
-#define DELAY_TEMP_PRINT 60000L    // delay for printing temp to serial (ms)
-#define TEMP_DECIMALS 4           // 4 decimals of output
-#define TEMPERATURE_PRECISION 12  // 12 bits precision
+#define DELAY_TEMP_READ 10000L               // delay for measuring temp (ms)
+#define DELAY_TEMP_PRINT 15000L             // delay for printing temp to serial (ms)
+#define TEMP_DECIMALS 4                     // 4 decimals of output
+#define TEMPERATURE_PRECISION 12            // 12 bits precision
 
 // **** WiFi *****
 const char ssid[] = "MM_IoT";               // your network SSID (name)
 const char pass[] = "chippo-lekkim";        // your network password
 const char server[] = "desolate-meadow-68880.herokuapp.com";
-#define DELAY_POST_DATA 60000L              // delay between updates, in milliseconds
+#define DELAY_POST_DATA 120000L            // delay between updates, in milliseconds
 
 int status = WL_IDLE_STATUS;      // the Wifi radio's status
 unsigned long lastConnectTime = millis();         // last time you connected to the server, in milliseconds
@@ -74,6 +67,8 @@ void loop() {
 
 // this method makes a HTTP connection to the server
 void postData() {
+  if (sensorCount <= 0) return;
+  
   // close any connection before send a new request
   // this will free the socket on the WiFi shield
   client.stop();
@@ -83,11 +78,16 @@ void postData() {
     Serial.println("Connecting...");
 
     // prepare content
-    String content = String("[{\"sensorId\": \"") + deviceAddressToString(thermColdWater) + String("\", \"value\": ") + String(tempColdWater, TEMP_DECIMALS) + String("}, ") + 
-      String("{\"sensorId\": \"") + deviceAddressToString(thermWarmWater) + String("\", \"value\": ") + String(tempWarmWater, TEMP_DECIMALS) + String("}, ") + 
-      String("{\"sensorId\": \"") + deviceAddressToString(thermOutside) + String("\", \"value\": ") + String(tempOutside, TEMP_DECIMALS) + String("}, ") + 
-      String("{\"sensorId\": \"") + deviceAddressToString(thermPumpOut) + String("\", \"value\": ") + String(tempPumpOut, TEMP_DECIMALS) + String("}, ") + 
-      String("{\"sensorId\": \"") + deviceAddressToString(thermPumpReturn) + String("\", \"value\": ") + String(tempPumpReturn, TEMP_DECIMALS) + String("}]");
+    String content;
+    for (uint8_t i=0; i<sensorCount; i++) {
+      if (i == 0) {
+        content = String("[{\"sensorId\": \"");
+      } else {
+        content += String(", {\"sensorId\": \"");
+      }
+      content += deviceAddressToString(addresses[i]) + String("\", \"sensorValue\": ") + String(temperatures[i], TEMP_DECIMALS) + String("}");
+    }
+    content += String("]");
     
     // send the HTTP POST request
     client.println(F("POST / HTTP/1.0"));
@@ -123,26 +123,48 @@ void printMacAddress() {
 }
 
 void readTemperatures() {
-  sensors.requestTemperatures();
-  tempColdWater = sensors.getTempC(thermColdWater);
-  tempWarmWater = sensors.getTempC(thermWarmWater);
-  tempOutside = sensors.getTempC(thermOutside);
-  tempPumpOut = sensors.getTempC(thermPumpOut);
-  tempPumpReturn = sensors.getTempC(thermPumpReturn);
+  // begin to scan for change in sensors
+  sensors.begin();
+
+  // get count
+  uint8_t sensorCountNew = sensors.getDeviceCount();
+  if (sensorCount != sensorCountNew) {
+    // sensorCount changed
+    Serial.print("Detected sensor count change - was ");
+    Serial.print(sensorCount);
+    Serial.print(" now ");
+    Serial.println(sensorCountNew);
+    sensorCount = sensorCountNew;
+
+    if (sensorCount > 0) {
+      // set resolution
+      sensors.setResolution(TEMPERATURE_PRECISION);
+  
+      // get addresses
+      for (uint8_t i=0; i<sensorCount; i++) {
+        sensors.getAddress(addresses[i], i);
+      }
+    }
+  }
+  
+  if (sensorCount > 0) {
+    // request temperatures and store
+    sensors.requestTemperatures();
+    for (uint8_t i=0; i<sensorCount; i++) {
+      temperatures[i] = sensors.getTempCByIndex(i);
+    }
+  }
 }
 
 void printTemperatures() {
+  if (sensorCount <= 0) return;
+  
   Serial.println("------------------------");
-  Serial.print("Cold water: ");
-  Serial.println(tempColdWater, TEMP_DECIMALS);
-  Serial.print("Warm water: ");
-  Serial.println(tempWarmWater, TEMP_DECIMALS);
-  Serial.print("Outside: ");
-  Serial.println(tempOutside, TEMP_DECIMALS);
-  Serial.print("Pump, out: ");
-  Serial.println(tempPumpOut, TEMP_DECIMALS);
-  Serial.print("Pump, return: ");
-  Serial.println(tempPumpReturn, TEMP_DECIMALS);
+  for (uint8_t i=0; i<sensorCount; i++) {
+    Serial.print(deviceAddressToString(addresses[i]));
+    Serial.print(": ");
+    Serial.println(temperatures[i], TEMP_DECIMALS);
+  }
 }
 
 void printWifiStatus() {
@@ -170,19 +192,6 @@ void initTempSensors() {
   Serial.print("Found ");
   Serial.print(sensors.getDeviceCount(), DEC);
   Serial.println(" devices.");
-
-  // set the resolution for all devices
-  sensors.setResolution(thermColdWater, TEMPERATURE_PRECISION);
-  sensors.setResolution(thermWarmWater, TEMPERATURE_PRECISION);
-  sensors.setResolution(thermOutside, TEMPERATURE_PRECISION);
-  sensors.setResolution(thermPumpOut, TEMPERATURE_PRECISION);
-  sensors.setResolution(thermPumpReturn, TEMPERATURE_PRECISION);
-  
-  // read and show initial temperatures
-  delay(2000);
-  readTemperatures();
-  delay(2000);
-  printTemperatures();
 }
 
 void initWifi() {
