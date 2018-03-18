@@ -1,6 +1,7 @@
 #include "WiFiEsp.h"
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include "vars.h"
 
 // ***** Temperature sensors *****
 // Data wire is plugged into pin 10 on the Arduino
@@ -20,9 +21,6 @@ unsigned long lastPrintTime = millis();     // when we last printed temps (to av
 #define TEMPERATURE_PRECISION 12            // 12 bits precision
 
 // **** WiFi *****
-const char ssid[] = "MM_IoT";               // your network SSID (name)
-const char pass[] = "chippo-lekkim";        // your network password
-const char server[] = "desolate-meadow-68880.herokuapp.com";
 #define DELAY_POST_DATA 120000L            // delay between updates, in milliseconds
 
 int status = WL_IDLE_STATUS;      // the Wifi radio's status
@@ -45,16 +43,16 @@ void setup() {
 
 void loop() {
   if ((((unsigned long)millis()) - lastReadTime) >= DELAY_TEMP_READ) {
-    readTemperatures();
     lastReadTime = millis();
+    readTemperatures();
   }
   if ((((unsigned long)millis()) - lastPrintTime) >= DELAY_TEMP_PRINT) {
-    printTemperatures();
     lastPrintTime = millis();
+    printTemperatures();
   }
   if ((((unsigned long)millis()) - lastConnectTime) >= DELAY_POST_DATA) {
-    postData();
     lastConnectTime = millis();
+    postData();
   }
   
   // if there's incoming data from the net connection send it out the serial port
